@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Canli Kur Takibi - Tum Varliklar</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0b1220;
+      --line: #263248;
+      --text: #e6ecf8;
+      --muted: #a3b0c7;
+      --good: #35c759;
+      --bad: #ff3b30;
+      --brand: #4aa3ff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      background: radial-gradient(circle at top, #16243e, var(--bg) 55%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .wrap {
+      max-width: 1150px;
+      margin: 0 auto;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.4rem;
+      letter-spacing: 0.3px;
+    }
+
+    .status {
+      font-size: 0.9rem;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 12px;
+      background: rgba(18, 26, 42, 0.8);
+    }
+
+    .status .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      margin-right: 6px;
+      background: #888;
+    }
+
+    .connected { background: var(--good) !important; }
+    .disconnected { background: var(--bad) !important; }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0));
+      backdrop-filter: blur(4px);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    input[type="search"] {
+      flex: 1 1 220px;
+      border: 1px solid var(--line);
+      background: #0d1628;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 9px 11px;
+      outline: none;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 12px;
+      background: #0f1c33;
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    button:hover {
+      border-color: var(--brand);
+      color: white;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      max-height: 70vh;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      min-width: 960px;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #101b30;
+      z-index: 1;
+      font-size: 0.86rem;
+      color: #bdd2ff;
+    }
+
+    tr:hover td {
+      background: rgba(74, 163, 255, 0.06);
+    }
+
+    .flash {
+      animation: flash 0.45s ease-out;
+    }
+
+    @keyframes flash {
+      from { background: rgba(74, 163, 255, 0.32); }
+      to { background: transparent; }
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <h1>Canli Kur Takibi - Tum Varliklar</h1>
+      <div class="status"><span id="statusDot" class="dot disconnected"></span><span id="statusText">Baglanti bekleniyor...</span></div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <input id="searchInput" type="search" placeholder="Varlik ara (or. USDTRY, CEYREK_YENI...)" />
+        <button id="sortBtn">Satisa gore sirala</button>
+        <button id="clearBtn">Filtreyi temizle</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Varlik</th>
+              <th>Alis</th>
+              <th>Satis</th>
+              <th>Dusuk</th>
+              <th>Yuksek</th>
+              <th>Kapanis</th>
+              <th>Tarih</th>
+            </tr>
+          </thead>
+          <tbody id="pricesBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="muted">Tum varliklar websocket akisindan anlik olarak listelenir. Baglanti koparsa otomatik tekrar baglanir.</div>
+  </div>
+
+  <script>
+    const WS_URL = "wss://socket.haremaltin.com/socket.io/?EIO=4&transport=websocket";
+
+    const statusDot = document.getElementById("statusDot");
+    const statusText = document.getElementById("statusText");
+    const pricesBody = document.getElementById("pricesBody");
+    const searchInput = document.getElementById("searchInput");
+    const sortBtn = document.getElementById("sortBtn");
+    const clearBtn = document.getElementById("clearBtn");
+
+    const prices = new Map();
+    let socket = null;
+    let reconnectTimer = null;
+    let sortBySell = false;
+
+    function setStatus(text, ok) {
+      statusText.textContent = text;
+      statusDot.classList.toggle("connected", ok);
+      statusDot.classList.toggle("disconnected", !ok);
+    }
+
+    function toNumber(v) {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : -Infinity;
+    }
+
+    function parseMessage(raw) {
+      if (raw === "2" && socket && socket.readyState === WebSocket.OPEN) {
+        socket.send("3");
+        return;
+      }
+
+      if (raw.startsWith("0")) {
+        socket.send("40");
+        return;
+      }
+
+      if (!raw.startsWith("42")) return;
+
+      try {
+        const payload = JSON.parse(raw.slice(2));
+        if (!Array.isArray(payload) || payload[0] !== "price_changed" || payload.length < 2) return;
+
+        const envelope = payload[1];
+        const data = envelope && typeof envelope === "object" && envelope.data ? envelope.data : envelope;
+        if (!data || typeof data !== "object") return;
+
+        for (const [code, info] of Object.entries(data)) {
+          if (!info || typeof info !== "object") continue;
+          prices.set(code, info);
+          patchRow(code, info);
+        }
+
+        redrawRows();
+      } catch (_) {
+        // ignore malformed chunks
+      }
+    }
+
+    function patchRow(code, info) {
+      const rowId = `row-${code}`;
+      let tr = document.getElementById(rowId);
+      const cells = [
+        code,
+        info.alis ?? "-",
+        info.satis ?? "-",
+        info.dusuk ?? "-",
+        info.yuksek ?? "-",
+        info.kapanis ?? "-",
+        info.tarih ?? "-"
+      ];
+
+      if (!tr) {
+        tr = document.createElement("tr");
+        tr.id = rowId;
+        tr.dataset.code = code;
+        tr.innerHTML = cells.map(() => "<td></td>").join("");
+        pricesBody.appendChild(tr);
+      }
+
+      [...tr.children].forEach((td, idx) => {
+        td.textContent = String(cells[idx]);
+      });
+
+      tr.classList.remove("flash");
+      void tr.offsetWidth;
+      tr.classList.add("flash");
+    }
+
+    function redrawRows() {
+      const filter = searchInput.value.trim().toUpperCase();
+      const rows = [...pricesBody.querySelectorAll("tr")];
+
+      if (sortBySell) {
+        rows.sort((a, b) => {
+          const av = toNumber(prices.get(a.dataset.code)?.satis);
+          const bv = toNumber(prices.get(b.dataset.code)?.satis);
+          return bv - av;
+        });
+        rows.forEach((r) => pricesBody.appendChild(r));
+      }
+
+      rows.forEach((row) => {
+        const code = row.dataset.code || "";
+        row.style.display = !filter || code.includes(filter) ? "" : "none";
+      });
+    }
+
+    function connect() {
+      if (socket) {
+        socket.onopen = socket.onclose = socket.onmessage = socket.onerror = null;
+        try { socket.close(); } catch (_) {}
+      }
+
+      setStatus("Baglaniyor...", false);
+      socket = new WebSocket(WS_URL);
+
+      socket.onopen = () => setStatus("Baglandi", true);
+      socket.onmessage = (event) => parseMessage(String(event.data || ""));
+      socket.onerror = () => setStatus("Baglanti hatasi", false);
+      socket.onclose = () => {
+        setStatus("Koptu, yeniden baglaniliyor...", false);
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(connect, 1800);
+      };
+    }
+
+    searchInput.addEventListener("input", redrawRows);
+
+    sortBtn.addEventListener("click", () => {
+      sortBySell = !sortBySell;
+      sortBtn.textContent = sortBySell ? "Siralama: Satis (azalan)" : "Satisa gore sirala";
+      redrawRows();
+    });
+
+    clearBtn.addEventListener("click", () => {
+      searchInput.value = "";
+      redrawRows();
+    });
+
+    connect();
+  </script>
+</body>
+</html>

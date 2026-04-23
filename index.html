@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Canlı Kur Ekranı</title>
+  <style>
+    :root {
+      --bg: #f4f1de;
+      --panel: #f4f1de;
+      --line: #f2cc8f;
+      --text: #3d405b;
+      --muted: #3d405b;
+      --up: #81b29a;
+      --down: #e07a5f;
+      --ok: #81b29a;
+      --bad: #e07a5f;
+      --head: #3d405b;
+      --head-text: #f4f1de;
+      --row-hover: #f2cc8f;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .title-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      letter-spacing: 0.2px;
+    }
+
+    .subtitle {
+      margin: 0;
+      font-size: 0.92rem;
+      color: var(--muted);
+      font-weight: 300;
+      letter-spacing: 0.1px;
+    }
+
+    .status {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 12px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      background: #f4f1de;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 99px;
+      display: inline-block;
+      margin-right: 6px;
+      background: var(--bad);
+    }
+
+    .connected { background: var(--ok); }
+    .disconnected { background: var(--bad); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 0.8fr;
+      gap: 14px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+
+    .panel-title {
+      margin: 0;
+      padding: 12px 14px;
+      font-size: 1rem;
+      border-bottom: 1px solid var(--line);
+      background: #81b29a;
+      color: #f4f1de;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    tbody td:first-child {
+      font-weight: 700;
+      color: #1f2238;
+      font-size: 1.02rem;
+    }
+
+    th {
+      background: var(--head);
+      color: var(--head-text);
+      font-size: 0.86rem;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    tbody tr:hover td {
+      background: var(--row-hover);
+    }
+
+    .price {
+      font-weight: 800;
+      font-size: 1.28rem;
+      color: #2b2d42;
+      transition: color 0.18s ease;
+    }
+
+    .up { color: #00b050; }
+    .down { color: #ff1e1e; }
+
+    .footnote {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.84rem;
+      font-weight: 600;
+    }
+
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="title-group">
+        <h1>Kardelen Kuyumcu - Canli Kur Ekranı</h1>
+        <p class="subtitle">Muharrem Çakır - Sunay Çakır</p>
+      </div>
+      <div class="status"><span id="statusDot" class="dot disconnected"></span><span id="statusText">Baglanti bekleniyor...</span></div>
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2 class="panel-title">Altın Fiyatları</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Varlik</th>
+              <th>Alis</th>
+              <th>Satis</th>
+            </tr>
+          </thead>
+          <tbody id="goldBody"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel-title">Döviz Kurları</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Varlik</th>
+              <th>Alis</th>
+              <th>Satis</th>
+            </tr>
+          </thead>
+          <tbody id="fxBody"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <div class="footnote">Dusen fiyat kirmizi, cikan fiyat yesil. Fiyat sabitse son renk korunur.</div>
+  </div>
+
+  <script>
+    const WS_URL = "wss://socket.haremaltin.com/socket.io/?EIO=4&transport=websocket";
+
+    const GOLD_ITEMS = [
+      { label: "Gram Altın", codes: ["KULCEALTIN"] },
+      { label: "22 Ayar", codes: ["AYAR22", "22AYAR"] },
+      { label: "Yeni Çeyrek", codes: ["CEYREK_YENI"] },
+      { label: "Eski Çeyrek", codes: ["CEYREK_ESKI"] },
+      { label: "Yeni Yarım", codes: ["YARIM_YENI"] },
+      { label: "Eski Yarım", codes: ["YARIM_ESKI"] },
+      { label: "Yeni ATA", codes: ["ATA_YENI"] },
+      { label: "Eski ATA", codes: ["ATA_ESKI"] },
+      { label: "14 Ayar", codes: ["AYAR14"] }
+    ];
+
+    const FX_ITEMS = [
+      { label: "USD/TL", codes: ["USDTRY"] },
+      { label: "EUR/TL", codes: ["EURTRY"] },
+      { label: "Sterlin/TL", codes: ["GBPTRY"] },
+      { label: "ONS", codes: ["ONS"] },
+      { label: "Gümüş", codes: ["GUMUSTRY"] },
+      { label: "EUR/USD", codes: ["EURUSD"] }
+    ];
+
+    const statusDot = document.getElementById("statusDot");
+    const statusText = document.getElementById("statusText");
+    const goldBody = document.getElementById("goldBody");
+    const fxBody = document.getElementById("fxBody");
+
+    let socket = null;
+    let reconnectTimer = null;
+    const latestByCode = new Map();
+
+    function setStatus(text, ok) {
+      statusText.textContent = text;
+      statusDot.classList.toggle("connected", ok);
+      statusDot.classList.toggle("disconnected", !ok);
+    }
+
+    function asNumber(value) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function formatPrice(value, withTrySymbol = true) {
+      if (value == null || value === "") return "-";
+      const raw = String(value).trim();
+      const num = asNumber(raw);
+      if (num == null) return raw;
+
+      const decimals = raw.includes(".") ? raw.split(".")[1].length : 2;
+      const formatted = new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+      }).format(num);
+      return withTrySymbol ? `${formatted} ₺` : formatted;
+    }
+
+    function buildRows() {
+      buildPanelRows(goldBody, GOLD_ITEMS, "gold");
+      buildPanelRows(fxBody, FX_ITEMS, "fx");
+    }
+
+    function buildPanelRows(body, items, panelKey) {
+      body.innerHTML = "";
+      for (const item of items) {
+        const tr = document.createElement("tr");
+        tr.dataset.panel = panelKey;
+        tr.dataset.codes = item.codes.join(",");
+        tr.innerHTML = `
+          <td>${item.label}</td>
+          <td class="price" data-field="alis">-</td>
+          <td class="price" data-field="satis">-</td>
+        `;
+        body.appendChild(tr);
+      }
+    }
+
+    function findPrice(codes) {
+      for (const code of codes) {
+        const data = latestByCode.get(code);
+        if (data) return data;
+      }
+      return null;
+    }
+
+    function updateCellTrend(cell, nextValue, withTrySymbol = true) {
+      const text = formatPrice(nextValue, withTrySymbol);
+      const prevNum = asNumber(cell.dataset.prevValue);
+      const nextNum = asNumber(nextValue);
+
+      if (prevNum != null && nextNum != null) {
+        if (nextNum > prevNum) {
+          cell.classList.remove("down");
+          cell.classList.add("up");
+        } else if (nextNum < prevNum) {
+          cell.classList.remove("up");
+          cell.classList.add("down");
+        }
+      }
+
+      cell.dataset.prevValue = nextValue == null ? "" : String(nextValue);
+      cell.textContent = text;
+    }
+
+    function refreshAllRows() {
+      const rows = [...document.querySelectorAll("tbody tr")];
+      for (const row of rows) {
+        const codes = (row.dataset.codes || "").split(",");
+        const price = findPrice(codes);
+        const alisCell = row.querySelector('[data-field="alis"]');
+        const satisCell = row.querySelector('[data-field="satis"]');
+
+        if (!price) continue;
+        const isEurUsdRow = codes.includes("EURUSD");
+        const withTrySymbol = !isEurUsdRow;
+        updateCellTrend(alisCell, price.alis, withTrySymbol);
+        updateCellTrend(satisCell, price.satis, withTrySymbol);
+      }
+    }
+
+    function parseMessage(raw) {
+      if (raw === "2" && socket && socket.readyState === WebSocket.OPEN) {
+        socket.send("3");
+        return;
+      }
+
+      if (raw.startsWith("0")) {
+        socket.send("40");
+        return;
+      }
+
+      if (!raw.startsWith("42")) return;
+
+      try {
+        const payload = JSON.parse(raw.slice(2));
+        if (!Array.isArray(payload) || payload[0] !== "price_changed" || payload.length < 2) return;
+        const envelope = payload[1];
+        const data = envelope && typeof envelope === "object" && envelope.data ? envelope.data : envelope;
+        if (!data || typeof data !== "object") return;
+
+        for (const [code, info] of Object.entries(data)) {
+          if (info && typeof info === "object") {
+            latestByCode.set(code, info);
+          }
+        }
+        refreshAllRows();
+      } catch (_) {
+        // malformed packet
+      }
+    }
+
+    function connect() {
+      if (socket) {
+        socket.onopen = socket.onclose = socket.onmessage = socket.onerror = null;
+        try { socket.close(); } catch (_) {}
+      }
+
+      setStatus("Baglaniyor...", false);
+      socket = new WebSocket(WS_URL);
+
+      socket.onopen = () => setStatus("Baglandi", true);
+      socket.onmessage = (event) => parseMessage(String(event.data || ""));
+      socket.onerror = () => setStatus("Baglanti hatasi", false);
+      socket.onclose = () => {
+        setStatus("Baglanti koptu, tekrar denenecek...", false);
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(connect, 1800);
+      };
+    }
+
+    buildRows();
+    connect();
+  </script>
+</body>
+</html>
