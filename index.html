@@ -74,6 +74,16 @@
       background: #f4f1de;
     }
 
+    .clock {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 12px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      background: #f4f1de;
+      font-weight: 600;
+    }
+
     .dot {
       width: 8px;
       height: 8px;
@@ -168,7 +178,10 @@
         <h1>Kardelen Kuyumcu - Canlı Kur Ekranı</h1>
         <p class="subtitle">Muharrem Çakır</p>
       </div>
-      <div class="status"><span id="statusDot" class="dot disconnected"></span><span id="statusText">Baglanti bekleniyor...</span></div>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <div class="clock">Saat: <span id="turkeyTime">--:--</span></div>
+        <div class="status"><span id="statusDot" class="dot disconnected"></span><span id="statusText">Baglanti bekleniyor...</span></div>
+      </div>
     </div>
 
     <div class="grid">
@@ -233,6 +246,7 @@
 
     const statusDot = document.getElementById("statusDot");
     const statusText = document.getElementById("statusText");
+    const turkeyTime = document.getElementById("turkeyTime");
     const goldBody = document.getElementById("goldBody");
     const fxBody = document.getElementById("fxBody");
 
@@ -244,6 +258,15 @@
       statusText.textContent = text;
       statusDot.classList.toggle("connected", ok);
       statusDot.classList.toggle("disconnected", !ok);
+    }
+
+    function updateTurkeyTime() {
+      const now = new Date();
+      turkeyTime.textContent = new Intl.DateTimeFormat("tr-TR", {
+        timeZone: "Europe/Istanbul",
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(now);
     }
 
     function asNumber(value) {
@@ -379,6 +402,8 @@
     }
 
     buildRows();
+    updateTurkeyTime();
+    setInterval(updateTurkeyTime, 1000);
     connect();
   </script>
 </body>
